@@ -3,10 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-# ==========================================
-# 1. FONCTIONS UTILITAIRES & ALGORITHMES
-# ==========================================
-
 def get_continuous_segments(mask):
     """Transforme un masque booléen en liste de segments continus."""
     if not mask.any(): return []
@@ -53,7 +49,7 @@ def detect_cusum_recenter(x, threshold=8, drift=1.0, cool_down=50):
     gp, gn = np.zeros(x.size), np.zeros(x.size)
     ta = []
     
-    # --- 1. Estimation du bruit global (MAD) ---
+    # --- Estimation du bruit global (MAD) ---
     # On utilise la médiane globale pour estimer le "bruit" car elle n'est pas polluée par les sauts
     global_median = np.median(x)
     mad = np.median(np.abs(x - global_median))
@@ -62,8 +58,7 @@ def detect_cusum_recenter(x, threshold=8, drift=1.0, cool_down=50):
     if std_est == 0: 
         std_est = 1e-6 if np.mean(x) == 0 else abs(np.mean(x)) * 0.01
 
-    # --- 2. Initialisation de la référence ---
-    # La "cible" (target) est la valeur moyenne attendue. Au début, c'est le début du signal.
+    # --- Initialisation de la référence ---
     reference_mean = np.mean(x[:50]) 
     
     last_detection_idx = -cool_down - 1
@@ -107,9 +102,6 @@ def detect_cusum_recenter(x, threshold=8, drift=1.0, cool_down=50):
             
     return ta
 
-# ==========================================
-# 2. PARAMÈTRES ET CONFIGURATION
-# ==========================================
 
 file_name = "NavData2.csv"
 output_folder = "Resultats_Figures"
@@ -140,15 +132,11 @@ dirac_window = 31
 dirac_sigma = 4
 dirac_min_amp_factor = 0.2
 
-# CUSUM (Ajusté pour la méthode Re-Center)
+# CUSUM (recentré)
 # Threshold : 6.0 ou 8.0 (plus bas = plus sensible, car le re-centrage évite les faux positifs)
 cusum_threshold = 8.0  
 cusum_drift = 1.0       
 cusum_cool_down = 60    # Temps nécessaire pour que le filtre du récepteur se stabilise après un saut
-
-# ==========================================
-# 3. MOTEUR D'ANALYSE
-# ==========================================
 
 try:
     print(f"Lecture du fichier {file_name}...")
@@ -170,7 +158,7 @@ try:
         time = ref_df.loc[signal.index, 'Time_s']
         global_std = np.std(signal)
         
-        # --- ETAPE 1 : LISSAGE ---
+        # --- LISSAGE ---
         sig_smooth = signal.rolling(window=step_window, center=True, min_periods=1).mean()
         grad = np.gradient(sig_smooth)
         grad_abs = np.abs(grad)
@@ -179,7 +167,7 @@ try:
         step_thresh = grad_std * step_thresh_factor if grad_std > 0 else 0.001
         ramp_thresh = grad_std * ramp_thresh_factor if grad_std > 0 else 0.0005
 
-        # --- ETAPE 2 : STEPS (GRADIENT) ---
+        # --- STEPS (GRADIENT) ---
         raw_step_mask = grad_abs > step_thresh
         raw_step_segments = get_continuous_segments(pd.Series(raw_step_mask, index=signal.index))
         merged_step_segments = merge_close_events(raw_step_segments, gap_threshold=100)
@@ -195,7 +183,7 @@ try:
                 if amp > 0: steps_up.append(seg)
                 else: steps_down.append(seg)
 
-        # --- ETAPE 3 : RAMPES ---
+        # --- RAMPES ---
         raw_ramp_mask = grad_abs > ramp_thresh
         raw_ramp_segments = get_continuous_segments(pd.Series(raw_ramp_mask, index=signal.index))
         ramps = []
@@ -205,7 +193,7 @@ try:
                 if len(overlap) < (len(seg) * 0.5):
                     ramps.append(seg)
 
-        # --- ETAPE 4 : DIRACS ---
+        # --- DIRACS ---
         rolling_median = signal.rolling(window=dirac_window, center=True).median()
         diff = np.abs(signal - rolling_median)
         mad = diff.rolling(window=dirac_window, center=True).median()
@@ -217,15 +205,12 @@ try:
         num_diracs, dirac_groups = group_dirac_indices(dirac_indices, max_gap=5)
         dirac_points = [diff.loc[g].idxmax() for g in dirac_groups]
 
-        # --- ETAPE 5 : CUSUM RE-CENTRÉ ---
-        # Utilisation de la nouvelle fonction
         cusum_points_idx = detect_cusum_recenter(sig_smooth.values, 
                                                  threshold=cusum_threshold, 
                                                  drift=cusum_drift, 
                                                  cool_down=cusum_cool_down)
         cusum_pandas_indices = [signal.index[i] for i in cusum_points_idx]
 
-        # --- ETAPE 6 : AFFICHAGE & ENREGISTREMENT ---
         nb_evts = len(steps_up) + len(steps_down) + len(ramps) + num_diracs + len(cusum_pandas_indices)
         
         if nb_evts > 0:
@@ -256,7 +241,7 @@ try:
                 ax.plot(time.iloc[s], sig_smooth.iloc[s], color='cyan', linewidth=3, label=l)
                 l_added = True
                 
-            # CUSUM (Vertical)
+            # CUSUM 
             l_added = False
             for c_idx in cusum_pandas_indices:
                 l = "Détection CUSUM" if not l_added else ""
@@ -276,15 +261,11 @@ try:
             ax.legend(loc='upper right', framealpha=0.9)
             ax.grid(True, linestyle='--', alpha=0.6)
             plt.tight_layout()
-            
-            # --- ENREGISTREMENT ---
+
             save_path = os.path.join(output_folder, f"Analyse_{col}.png")
             plt.savefig(save_path, dpi=150)
             print(f"   Figure enregistrée : {save_path}")
-            
-            # Affichage écran (optionnel si tu lances en batch)
-            # plt.show() 
-            plt.close(fig) # Ferme la figure pour libérer la mémoire
+            plt.close(fig)
 
 except FileNotFoundError:
     print(f"ERREUR : Le fichier '{file_name}' est introuvable.")
