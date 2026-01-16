@@ -12,6 +12,6 @@ Le script analyse les séries temporelles (CSV) et identifie trois signatures de
 
 * **Python 3.8+**
 * Les bibliothèques scientifiques suivantes :
-Pandas
-Numpy
+Pandas,
+Numpy,
 Matplotlib
